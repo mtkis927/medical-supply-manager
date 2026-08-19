@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#f7f7f8" />
+  <title>期限チェッカー MVP</title>
+  <style>
+    :root {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #171717;
+      background: #f5f5f7;
+      --card: #fff;
+      --border: #e5e5e7;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f5f5f7; }
+    .app { max-width: 760px; margin: 0 auto; padding: 20px 16px 100px; }
+    h1 { font-size: 28px; margin: 8px 0 4px; }
+    .sub { color:#666; margin:0 0 20px; font-size:14px; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:18px; padding:16px; margin:12px 0; }
+    .summary { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+    .summary button { border:0; border-radius:14px; padding:12px 8px; font:inherit; cursor:pointer; }
+    .summary .n { display:block; font-size:24px; font-weight:700; margin-top:3px; }
+    .expired { background:#ffe8e8; }
+    .thismonth { background:#fff0dd; }
+    .nextmonth { background:#fff7cf; }
+    .within3 { background:#eef4ff; }
+    button.primary { width:100%; border:0; border-radius:14px; padding:14px 16px; font-size:16px; font-weight:700; background:#111; color:white; cursor:pointer; }
+    button.secondary { width:100%; border:1px solid #ccc; border-radius:14px; padding:12px 16px; background:white; font-size:15px; cursor:pointer; }
+    button.danger { border:0; background:#fff0f0; color:#b00020; padding:8px 10px; border-radius:10px; cursor:pointer; }
+    .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    label { display:block; font-size:13px; color:#555; margin-bottom:5px; }
+    input, select, textarea { width:100%; border:1px solid #d8d8dc; border-radius:12px; padding:11px 12px; font-size:16px; background:white; }
+    textarea { min-height:85px; resize:vertical; }
+    .field { margin:10px 0; }
+    .item { display:flex; justify-content:space-between; gap:12px; border-top:1px solid #eee; padding:14px 0; }
+    .item:first-child { border-top:0; }
+    .item-title { font-weight:700; }
+    .meta { color:#666; font-size:13px; line-height:1.55; margin-top:4px; }
+    .badge { display:inline-block; font-size:12px; border-radius:999px; padding:4px 8px; margin-bottom:6px; }
+    .badge.expired { color:#a40000; }
+    .badge.thismonth { color:#9a5200; }
+    .badge.nextmonth { color:#7a6500; }
+    .badge.within3 { color:#315c9b; }
+    .badge.ok { background:#eaf7ee; color:#226b35; }
+    .hidden { display:none !important; }
+    video { width:100%; border-radius:14px; background:#111; max-height:420px; object-fit:cover; }
+    .scanner-note { font-size:13px; color:#666; line-height:1.5; margin-top:10px; }
+    .raw-result { word-break:break-all; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; background:#f6f6f8; padding:10px; border-radius:10px; }
+    .empty { color:#777; text-align:center; padding:22px 8px; }
+    .toolbar { display:flex; gap:8px; margin-bottom:8px; }
+    .toolbar input { flex:1; }
+    @media (max-width:600px) {
+      .summary { grid-template-columns:1fr 1fr; }
+      .row { grid-template-columns:1fr; }
+    }
+  </style>
+</head>
+<body>
+<main class="app">
+  <h1>期限チェッカー</h1>
+  <p class="sub">GS1からGTIN・LOT・有効期限を読み取り、医薬品の期限を月単位で管理するMVP</p>
+  <div id="runtimeStatus" class="card" style="padding:10px 12px;font-size:13px;">
+    起動確認中…
+  </div>
+
+  <section class="summary">
+    <button class="expired" data-filter="expired">期限切れ<span class="n" id="countExpired">0</span></button>
+    <button class="thismonth" data-filter="thismonth">今月<span class="n" id="countThis">0</span></button>
+    <button class="nextmonth" data-filter="nextmonth">翌月<span class="n" id="countNext">0</span></button>
+    <button class="within3" data-filter="within3">3か月以内<span class="n" id="count3">0</span></button>
+  </section>
+
+  <section class="card">
+    <button id="scanBtn" class="primary">📷 GS1をスキャン</button>
+    <div id="scannerBox" class="hidden" style="margin-top:12px">
+      <video id="video" muted playsinline></video>
+      <div style="display:flex; gap:8px; margin-top:8px">
+        <button id="stopScanBtn" class="secondary">スキャン停止</button>
+      </div>
+      <p class="scanner-note">カメラはHTTPSまたはlocalhostで開いたときに利用できます。Data Matrix / Code 128などをZXingで読み取ります。</p>
+    </div>
+  </section>
+
+  <section class="card">
+    <strong>GS1文字列を手入力してテスト</strong>
+    <p class="scanner-note">実物スキャン前の動作確認用。括弧付き表記も入力できます。</p>
+    <div class="field">
+      <textarea id="rawGs1" placeholder="例：(01)04912345678901(17)270300(10)ABC123"></textarea>
+    </div>
+    <button id="parseBtn" class="secondary">GS1を解析</button>
+    <div id="rawDisplay" class="raw-result hidden" style="margin-top:10px"></div>
+  </section>
+
+  <section class="card">
+    <strong>登録内容</strong>
+    <div class="field">
+      <label>商品名</label>
+      <input id="productName" placeholder="例：○○注射液 20mg" />
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>GTIN</label>
+        <input id="gtin" inputmode="numeric" />
+      </div>
+      <div class="field">
+        <label>LOT</label>
+        <input id="lot" />
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>有効期限（月単位）</label>
+        <input id="expiryMonth" type="month" />
+      </div>
+      <div class="field">
+        <label>数量</label>
+        <input id="quantity" type="number" min="1" value="1" />
+      </div>
+    </div>
+    <div class="field">
+      <label>保管場所</label>
+      <input id="location" placeholder="例：処置室 / 車両1 / 往診バッグA" />
+    </div>
+    <input id="expiryRaw" type="hidden" />
+    <button id="saveBtn" class="primary">登録する</button>
+  </section>
+
+  <section class="card">
+    <div class="toolbar">
+      <input id="search" placeholder="商品名・LOT・GTINで検索" />
+      <button id="showAllBtn" class="secondary" style="width:auto">全件</button>
+    </div>
+    <div id="filterLabel" class="scanner-note">期限順一覧</div>
+    <div id="list"></div>
+  </section>
+
+  <section class="card">
+    <button id="exportBtn" class="secondary">データを書き出す（JSON）</button>
+    <div style="height:8px"></div>
+    <button id="clearBtn" class="danger">全データ削除</button>
+  </section>
+</main>
+
+<script src="https://unpkg.com/@zxing/library@0.23.0/umd/index.min.js"></script>
+<script>
+(() => {
+  const STORAGE_KEY = "expiry-checker-items-v1";
+  let storageAvailable = true;
+  let items = [];
+  let filter = "all";
+  let controls = null;
+
+  const $ = id => document.getElementById(id);
+
+  function loadStorage() {
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      items = raw ? JSON.parse(raw) : [];
+      storageAvailable = true;
+    } catch (e) {
+      console.warn("localStorage unavailable; using memory only.", e);
+      items = [];
+      storageAvailable = false;
+    }
+  }
+
+  function saveStorage() {
+    if (!storageAvailable) return;
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    } catch (e) {
+      console.warn("localStorage save failed; switching to memory only.", e);
+      storageAvailable = false;
+      updateRuntimeStatus();
+    }
+  }
+
+  function updateRuntimeStatus(message = "") {
+    const el = $("runtimeStatus");
+    if (!el) return;
+    const mode = storageAvailable
+      ? "✅ JavaScript起動済み・端末内保存が利用できます"
+      : "⚠️ JavaScript起動済み・この開き方では端末内保存が使えないため一時保存で動作します";
+    el.textContent = message ? `${mode}｜${message}` : mode;
+  }
+
+  function normalizeGs1(raw) {
+    return raw
+      .trim()
+      .replace(/^\][A-Za-z0-9]{2}/, "")
+      .replace(/\u001d/g, String.fromCharCode(29));
+  }
+
+  function parseBracketed(raw) {
+    const out = {};
+    const re = /\((\d{2,4})\)([^()]*)/g;
+    let m;
+    while ((m = re.exec(raw)) !== null) out[m[1]] = m[2].trim();
+    return out;
+  }
+
+  function parseUnbracketed(raw) {
+    const s = normalizeGs1(raw);
+    const out = {};
+    let i = 0;
+    const GS = String.fromCharCode(29);
+
+    while (i < s.length) {
+      if (s[i] === GS) { i++; continue; }
+      const ai2 = s.slice(i, i + 2);
+
+      if (ai2 === "01" && i + 16 <= s.length) {
+        out["01"] = s.slice(i + 2, i + 16);
+        i += 16;
+        continue;
+      }
+      if (ai2 === "17" && i + 8 <= s.length) {
+        out["17"] = s.slice(i + 2, i + 8);
+        i += 8;
+        continue;
+      }
+      if (ai2 === "10") {
+        let end = s.indexOf(GS, i + 2);
+        if (end === -1) {
+          // MVP: AI(10)が末尾の場合を最も確実に扱う。
+          out["10"] = s.slice(i + 2);
+          i = s.length;
+        } else {
+          out["10"] = s.slice(i + 2, end);
+          i = end + 1;
+        }
+        continue;
+      }
+
+      // 未対応AIは1文字進めて既知AIを探す（MVP向け）
+      i++;
+    }
+    return out;
+  }
+
+  function parseGS1(raw) {
+    const parsed = raw.includes("(") ? parseBracketed(raw) : parseUnbracketed(raw);
+    const gtin = parsed["01"] || "";
+    const lot = parsed["10"] || "";
+    const exp = parsed["17"] || "";
+    let expiryMonth = "";
+
+    if (/^\d{6}$/.test(exp)) {
+      const yy = Number(exp.slice(0,2));
+      const mm = exp.slice(2,4);
+      const year = 2000 + yy;
+      if (Number(mm) >= 1 && Number(mm) <= 12) expiryMonth = `${year}-${mm}`;
+    }
+    return { gtin, lot, expiryRaw: exp, expiryMonth, parsed };
+  }
+
+  function applyParsed(raw) {
+    const r = parseGS1(raw);
+    $("gtin").value = r.gtin;
+    $("lot").value = r.lot;
+    $("expiryRaw").value = r.expiryRaw;
+    $("expiryMonth").value = r.expiryMonth;
+    $("rawDisplay").textContent =
+      `GTIN: ${r.gtin || "未取得"} / LOT: ${r.lot || "未取得"} / 有効期限: ${r.expiryMonth || "未取得"} / 生データ(17): ${r.expiryRaw || "未取得"}`;
+    $("rawDisplay").classList.remove("hidden");
+
+    if (r.gtin) {
+      const previous = items.find(x => x.gtin === r.gtin && x.productName);
+      if (previous && !$("productName").value) $("productName").value = previous.productName;
+    }
+  }
+
+  function monthIndex(ym) {
+    if (!/^\d{4}-\d{2}$/.test(ym)) return null;
+    const [y,m] = ym.split("-").map(Number);
+    return y * 12 + (m - 1);
+  }
+
+  function statusFor(ym) {
+    const idx = monthIndex(ym);
+    if (idx === null) return { key:"unknown", label:"期限未設定", cls:"ok" };
+    const now = new Date();
+    const cur = now.getFullYear() * 12 + now.getMonth();
+    const d = idx - cur;
+    if (d < 0) return { key:"expired", label:"期限切れ", cls:"expired" };
+    if (d === 0) return { key:"thismonth", label:"今月期限", cls:"thismonth" };
+    if (d === 1) return { key:"nextmonth", label:"翌月期限", cls:"nextmonth" };
+    if (d <= 3) return { key:"within3", label:"3か月以内", cls:"within3" };
+    return { key:"ok", label:"期限余裕あり", cls:"ok" };
+  }
+
+  function formatYM(ym) {
+    if (!ym) return "未設定";
+    const [y,m] = ym.split("-");
+    return `${y}/${m}`;
+  }
+
+  function render() {
+    const counts = { expired:0, thismonth:0, nextmonth:0, within3:0 };
+    items.forEach(x => {
+      const s = statusFor(x.expiryMonth);
+      if (counts[s.key] !== undefined) counts[s.key]++;
+    });
+    $("countExpired").textContent = counts.expired;
+    $("countThis").textContent = counts.thismonth;
+    $("countNext").textContent = counts.nextmonth;
+    $("count3").textContent = counts.within3;
+
+    const q = $("search").value.trim().toLowerCase();
+    let visible = items.filter(x => {
+      const s = statusFor(x.expiryMonth);
+      if (filter !== "all" && s.key !== filter) return false;
+      if (!q) return true;
+      return [x.productName, x.gtin, x.lot, x.location].join(" ").toLowerCase().includes(q);
+    });
+
+    visible.sort((a,b) => (a.expiryMonth || "9999-99").localeCompare(b.expiryMonth || "9999-99"));
+
+    $("filterLabel").textContent = filter === "all" ? "期限順一覧" : `絞り込み：${{
+      expired:"期限切れ", thismonth:"今月期限", nextmonth:"翌月期限", within3:"3か月以内"
+    }[filter]}`;
+
+    if (!visible.length) {
+      $("list").innerHTML = `<div class="empty">該当する登録はありません</div>`;
+      return;
+    }
+
+    $("list").innerHTML = visible.map(x => {
+      const s = statusFor(x.expiryMonth);
+      return `
+        <div class="item">
+          <div>
+            <span class="badge ${s.cls}">${s.label}</span>
+            <div class="item-title">${escapeHtml(x.productName || "商品名未設定")}</div>
+            <div class="meta">
+              有効期限 ${escapeHtml(formatYM(x.expiryMonth))}<br>
+              LOT ${escapeHtml(x.lot || "-")} / 数量 ${escapeHtml(String(x.quantity || 1))}<br>
+              GTIN ${escapeHtml(x.gtin || "-")}${x.location ? `<br>保管場所 ${escapeHtml(x.location)}` : ""}
+            </div>
+          </div>
+          <div><button class="danger deleteBtn" data-id="${x.id}">削除</button></div>
+        </div>`;
+    }).join("");
+
+    document.querySelectorAll(".deleteBtn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        items = items.filter(x => x.id !== btn.dataset.id);
+        saveStorage();
+        render();
+      });
+    });
+  }
+
+  function escapeHtml(v) {
+    return String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+  }
+
+  $("parseBtn").addEventListener("click", () => {
+    try {
+      const raw = $("rawGs1").value.trim();
+      if (!raw) {
+        updateRuntimeStatus("GS1文字列を入力してください");
+        return;
+      }
+      applyParsed(raw);
+      updateRuntimeStatus("GS1解析に成功しました");
+    } catch (e) {
+      console.error(e);
+      updateRuntimeStatus("解析中にエラーが発生しました");
+      alert("GS1解析中にエラーが発生しました。");
+    }
+  });
+
+  $("saveBtn").addEventListener("click", () => {
+    const expiryMonth = $("expiryMonth").value;
+    if (!$("productName").value.trim()) return alert("商品名を入力してください。");
+    if (!expiryMonth) return alert("有効期限（月）を入力してください。");
+
+    items.push({
+      id: (window.crypto && typeof window.crypto.randomUUID === "function")
+        ? window.crypto.randomUUID()
+        : String(Date.now()) + "-" + Math.random().toString(16).slice(2),
+      productName: $("productName").value.trim(),
+      gtin: $("gtin").value.trim(),
+      lot: $("lot").value.trim(),
+      expiryMonth,
+      expiryRaw: $("expiryRaw").value.trim(),
+      quantity: Number($("quantity").value || 1),
+      location: $("location").value.trim(),
+      createdAt: new Date().toISOString()
+    });
+    saveStorage();
+    ["productName","gtin","lot","expiryMonth","expiryRaw","location","rawGs1"].forEach(id => $(id).value = "");
+    $("quantity").value = "1";
+    $("rawDisplay").classList.add("hidden");
+    filter = "all";
+    render();
+  });
+
+  document.querySelectorAll("[data-filter]").forEach(btn => {
+    btn.addEventListener("click", () => { filter = btn.dataset.filter; render(); });
+  });
+  $("showAllBtn").addEventListener("click", () => { filter = "all"; render(); });
+  $("search").addEventListener("input", render);
+
+  $("clearBtn").addEventListener("click", () => {
+    if (!confirm("登録データをすべて削除しますか？")) return;
+    items = [];
+    saveStorage();
+    render();
+    updateRuntimeStatus("登録データをクリアしました");
+  });
+
+  $("exportBtn").addEventListener("click", () => {
+    const blob = new Blob([JSON.stringify(items, null, 2)], {type:"application/json"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `expiry-checker-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  $("scanBtn").addEventListener("click", async () => {
+    $("scannerBox").classList.remove("hidden");
+    if (!window.ZXing) {
+      alert("ZXingライブラリを読み込めませんでした。インターネット接続を確認してください。");
+      return;
+    }
+    try {
+      const reader = new ZXing.BrowserMultiFormatReader();
+      controls = await reader.decodeFromVideoDevice(undefined, $("video"), (result, err) => {
+        if (result) {
+          const text = result.getText();
+          $("rawGs1").value = text;
+          applyParsed(text);
+          if (controls && controls.stop) controls.stop();
+          $("scannerBox").classList.add("hidden");
+        }
+      });
+    } catch (e) {
+      console.error(e);
+      alert("カメラを起動できませんでした。HTTPSまたはlocalhostで開き、カメラ許可を確認してください。");
+    }
+  });
+
+  $("stopScanBtn").addEventListener("click", () => {
+    if (controls && controls.stop) controls.stop();
+    controls = null;
+    $("scannerBox").classList.add("hidden");
+  });
+
+  loadStorage();
+  render();
+  updateRuntimeStatus();
+})();
+</script>
+</body>
+</html>
