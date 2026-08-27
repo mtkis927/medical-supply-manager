@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#f7f7f8" />
-  <title>期限チェッカー MVP</title>
+  <title>期限チェッカー MVP v3</title>
   <style>
     :root {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -48,6 +48,8 @@
     video { width:100%; border-radius:14px; background:#111; max-height:420px; object-fit:cover; }
     .scanner-note { font-size:13px; color:#666; line-height:1.5; margin-top:10px; }
     .raw-result { word-break:break-all; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; background:#f6f6f8; padding:10px; border-radius:10px; }
+    .scan-success { display:flex; align-items:center; gap:10px; margin-top:12px; padding:14px; border:2px solid #2e9b50; border-radius:14px; background:#eaf7ee; color:#185c2d; font-weight:700; }
+    .scan-success-icon { display:grid; place-items:center; width:30px; height:30px; flex:0 0 30px; border-radius:50%; background:#2e9b50; color:white; font-size:18px; }
     .empty { color:#777; text-align:center; padding:22px 8px; }
     .toolbar { display:flex; gap:8px; margin-bottom:8px; }
     .toolbar input { flex:1; }
@@ -74,6 +76,10 @@
 
   <section class="card">
     <button id="scanBtn" class="primary">📷 GS1をスキャン</button>
+    <div id="scanSuccess" class="scan-success hidden" role="status" aria-live="polite">
+      <span class="scan-success-icon" aria-hidden="true">✓</span>
+      <span>GS1を読み取りました</span>
+    </div>
     <div id="scannerBox" class="hidden" style="margin-top:12px">
       <video id="video" muted playsinline></video>
       <div style="display:flex; gap:8px; margin-top:8px">
@@ -151,6 +157,7 @@
   let items = [];
   let filter = "all";
   let controls = null;
+  let scanSuccessTimer = null;
 
   const $ = id => document.getElementById(id);
 
@@ -184,6 +191,17 @@
       ? "✅ JavaScript起動済み・端末内保存が利用できます"
       : "⚠️ JavaScript起動済み・この開き方では端末内保存が使えないため一時保存で動作します";
     el.textContent = message ? `${mode}｜${message}` : mode;
+  }
+
+  function showScanSuccess() {
+    const el = $("scanSuccess");
+    if (!el) return;
+    if (scanSuccessTimer) window.clearTimeout(scanSuccessTimer);
+    el.classList.remove("hidden");
+    scanSuccessTimer = window.setTimeout(() => {
+      el.classList.add("hidden");
+      scanSuccessTimer = null;
+    }, 4000);
   }
 
   function normalizeGs1(raw) {
@@ -435,6 +453,8 @@
           const text = result.getText();
           $("rawGs1").value = text;
           applyParsed(text);
+          showScanSuccess();
+          updateRuntimeStatus("GS1読み取りに成功しました");
           if (controls && controls.stop) controls.stop();
           $("scannerBox").classList.add("hidden");
         }
