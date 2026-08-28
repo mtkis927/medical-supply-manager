@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#f7f7f8" />
-  <title>期限チェッカー MVP v3</title>
+  <title>期限チェッカー MVP v3.2</title>
   <style>
     :root {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -16,7 +16,9 @@
     * { box-sizing: border-box; }
     body { margin: 0; background: #f5f5f7; }
     .app { max-width: 760px; margin: 0 auto; padding: 20px 16px 100px; }
-    h1 { font-size: 28px; margin: 8px 0 4px; }
+    h1 { font-size: 28px; margin: 0; }
+    .app-header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:8px 0 4px; }
+    .icon-button { display:grid; place-items:center; width:44px; height:44px; border:1px solid #d8d8dc; border-radius:14px; background:white; font-size:22px; cursor:pointer; }
     .sub { color:#666; margin:0 0 20px; font-size:14px; }
     .card { background:var(--card); border:1px solid var(--border); border-radius:18px; padding:16px; margin:12px 0; }
     .summary { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
@@ -50,9 +52,33 @@
     .raw-result { word-break:break-all; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; background:#f6f6f8; padding:10px; border-radius:10px; }
     .scan-success { display:flex; align-items:center; gap:10px; margin-top:12px; padding:14px; border:2px solid #2e9b50; border-radius:14px; background:#eaf7ee; color:#185c2d; font-weight:700; }
     .scan-success-icon { display:grid; place-items:center; width:30px; height:30px; flex:0 0 30px; border-radius:50%; background:#2e9b50; color:white; font-size:18px; }
+    .scanner-stage { position:relative; overflow:hidden; border-radius:14px; background:#111; }
+    .scan-guide { position:absolute; inset:20% 8%; border:3px solid rgba(255,255,255,.92); border-radius:12px; box-shadow:0 0 0 999px rgba(0,0,0,.24); pointer-events:none; }
+    .scan-guide::before, .scan-guide::after { content:""; position:absolute; left:10%; right:10%; height:2px; background:rgba(70,220,110,.9); }
+    .scan-guide::before { top:40%; }
+    .scan-guide::after { top:60%; }
+    .zoom-controls { display:grid; grid-template-columns:44px 1fr 44px; align-items:center; gap:8px; margin-top:10px; }
+    .zoom-controls button { border:1px solid #ccc; border-radius:12px; padding:9px; background:white; font-size:18px; font-weight:700; }
+    .zoom-value { text-align:center; font-size:13px; color:#555; }
     .empty { color:#777; text-align:center; padding:22px 8px; }
     .toolbar { display:flex; gap:8px; margin-bottom:8px; }
     .toolbar input { flex:1; }
+    .app-tabs { position:sticky; top:0; z-index:5; display:grid; grid-template-columns:1fr 1fr; gap:6px; margin:12px 0; padding:5px; border:1px solid var(--border); border-radius:16px; background:rgba(255,255,255,.94); backdrop-filter:blur(12px); }
+    .app-tabs button { border:0; border-radius:11px; padding:11px; background:transparent; color:#666; font-size:15px; font-weight:700; }
+    .app-tabs button.active { background:#111; color:#fff; }
+    dialog { width:min(560px, calc(100% - 28px)); max-height:85vh; padding:0; border:0; border-radius:20px; box-shadow:0 20px 60px rgba(0,0,0,.25); }
+    dialog::backdrop { background:rgba(0,0,0,.38); }
+    .dialog-body { padding:18px; overflow:auto; }
+    .dialog-header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+    .dialog-header h2 { margin:0; font-size:21px; }
+    .dialog-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:16px; }
+    .settings-section { padding:14px 0; border-top:1px solid #eee; }
+    .settings-section:first-of-type { border-top:0; }
+    .inline-add { display:grid; grid-template-columns:1fr auto; gap:8px; }
+    .location-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 0; border-top:1px solid #eee; }
+    .confirm-grid { display:grid; grid-template-columns:auto 1fr; gap:8px 14px; margin:0; }
+    .confirm-grid dt { color:#666; }
+    .confirm-grid dd { margin:0; font-weight:600; overflow-wrap:anywhere; }
     @media (max-width:600px) {
       .summary { grid-template-columns:1fr 1fr; }
       .row { grid-template-columns:1fr; }
@@ -61,19 +87,21 @@
 </head>
 <body>
 <main class="app">
-  <h1>期限チェッカー</h1>
+  <div class="app-header">
+    <h1>期限チェッカー</h1>
+    <button id="settingsBtn" class="icon-button" type="button" aria-label="設定">⚙︎</button>
+  </div>
   <p class="sub">GS1からGTIN・LOT・有効期限を読み取り、医薬品の期限を月単位で管理するMVP</p>
   <div id="runtimeStatus" class="card" style="padding:10px 12px;font-size:13px;">
     起動確認中…
   </div>
 
-  <section class="summary">
-    <button class="expired" data-filter="expired">期限切れ<span class="n" id="countExpired">0</span></button>
-    <button class="thismonth" data-filter="thismonth">今月<span class="n" id="countThis">0</span></button>
-    <button class="nextmonth" data-filter="nextmonth">翌月<span class="n" id="countNext">0</span></button>
-    <button class="within3" data-filter="within3">3か月以内<span class="n" id="count3">0</span></button>
-  </section>
+  <nav class="app-tabs" aria-label="画面切り替え">
+    <button class="active" type="button" data-tab="register">読取・登録</button>
+    <button type="button" data-tab="list">期限順一覧</button>
+  </nav>
 
+  <div id="registerTab" class="tab-panel">
   <section class="card">
     <button id="scanBtn" class="primary">📷 GS1をスキャン</button>
     <div id="scanSuccess" class="scan-success hidden" role="status" aria-live="polite">
@@ -81,11 +109,19 @@
       <span>GS1を読み取りました</span>
     </div>
     <div id="scannerBox" class="hidden" style="margin-top:12px">
-      <video id="video" muted playsinline></video>
+      <div class="scanner-stage">
+        <video id="video" muted playsinline></video>
+        <div class="scan-guide" aria-hidden="true"></div>
+      </div>
+      <div id="zoomControls" class="zoom-controls hidden">
+        <button id="zoomOutBtn" type="button" aria-label="縮小">−</button>
+        <div id="zoomValue" class="zoom-value">ズーム 1.0×</div>
+        <button id="zoomInBtn" type="button" aria-label="拡大">＋</button>
+      </div>
       <div style="display:flex; gap:8px; margin-top:8px">
         <button id="stopScanBtn" class="secondary">スキャン停止</button>
       </div>
-      <p class="scanner-note">カメラはHTTPSまたはlocalhostで開いたときに利用できます。Data Matrix / Code 128などをZXingで読み取ります。</p>
+      <p class="scanner-note">コードを白い枠いっぱいに水平に合わせ、反射を避けて静止してください。小さいコードは、ピントが合う距離を保ちながらズームしてください。</p>
     </div>
   </section>
 
@@ -127,12 +163,22 @@
     </div>
     <div class="field">
       <label>保管場所</label>
-      <input id="location" placeholder="例：処置室 / 車両1 / 往診バッグA" />
+      <select id="location">
+        <option value="">選択してください</option>
+      </select>
     </div>
     <input id="expiryRaw" type="hidden" />
     <button id="saveBtn" class="primary">登録する</button>
   </section>
+  </div>
 
+  <div id="listTab" class="tab-panel hidden">
+  <section class="summary">
+    <button class="expired" data-filter="expired">期限切れ<span class="n" id="countExpired">0</span></button>
+    <button class="thismonth" data-filter="thismonth">今月<span class="n" id="countThis">0</span></button>
+    <button class="nextmonth" data-filter="nextmonth">翌月<span class="n" id="countNext">0</span></button>
+    <button class="within3" data-filter="within3">3か月以内<span class="n" id="count3">0</span></button>
+  </section>
   <section class="card">
     <div class="toolbar">
       <input id="search" placeholder="商品名・LOT・GTINで検索" />
@@ -141,23 +187,61 @@
     <div id="filterLabel" class="scanner-note">期限順一覧</div>
     <div id="list"></div>
   </section>
-
-  <section class="card">
-    <button id="exportBtn" class="secondary">データを書き出す（JSON）</button>
-    <div style="height:8px"></div>
-    <button id="clearBtn" class="danger">全データ削除</button>
-  </section>
+  </div>
 </main>
+
+<dialog id="settingsDialog" aria-labelledby="settingsTitle">
+  <div class="dialog-body">
+    <div class="dialog-header">
+      <h2 id="settingsTitle">設定</h2>
+      <button id="closeSettingsBtn" class="icon-button" type="button" aria-label="閉じる">×</button>
+    </div>
+    <section class="settings-section">
+      <strong>保管場所</strong>
+      <p class="scanner-note">登録画面で選ぶ保管場所を端末内に保存します。</p>
+      <div class="inline-add">
+        <input id="newLocation" placeholder="例：処置室" />
+        <button id="addLocationBtn" class="secondary" type="button" style="width:auto">追加</button>
+      </div>
+      <div id="locationList" style="margin-top:10px"></div>
+    </section>
+    <section class="settings-section">
+      <strong>データ管理</strong>
+      <div style="height:10px"></div>
+      <button id="exportBtn" class="secondary" type="button">データを書き出す（JSON）</button>
+      <div style="height:8px"></div>
+      <button id="clearBtn" class="danger" type="button">全登録データを削除</button>
+    </section>
+  </div>
+</dialog>
+
+<dialog id="confirmDialog" aria-labelledby="confirmTitle">
+  <div class="dialog-body">
+    <div class="dialog-header">
+      <h2 id="confirmTitle">この内容で合っていますか？</h2>
+    </div>
+    <dl id="confirmSummary" class="confirm-grid"></dl>
+    <div class="dialog-actions">
+      <button id="cancelRegisterBtn" class="secondary" type="button">戻って修正</button>
+      <button id="confirmRegisterBtn" class="primary" type="button">この内容で登録</button>
+    </div>
+  </div>
+</dialog>
 
 <script src="https://unpkg.com/@zxing/library@0.23.0/umd/index.min.js"></script>
 <script>
 (() => {
   const STORAGE_KEY = "expiry-checker-items-v1";
+  const LOCATIONS_KEY = "expiry-checker-locations-v1";
   let storageAvailable = true;
   let items = [];
+  let locations = [];
+  let pendingRegistration = null;
   let filter = "all";
   let controls = null;
   let scannerReader = null;
+  let activeVideoTrack = null;
+  let zoomState = null;
   let scanSuccessTimer = null;
 
   const $ = id => document.getElementById(id);
@@ -166,10 +250,17 @@
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       items = raw ? JSON.parse(raw) : [];
+      const rawLocations = window.localStorage.getItem(LOCATIONS_KEY);
+      locations = rawLocations ? JSON.parse(rawLocations) : [];
+      items.forEach(item => {
+        if (item.location && !locations.includes(item.location)) locations.push(item.location);
+      });
+      locations = locations.filter(Boolean).sort((a,b) => a.localeCompare(b, "ja"));
       storageAvailable = true;
     } catch (e) {
       console.warn("localStorage unavailable; using memory only.", e);
       items = [];
+      locations = [];
       storageAvailable = false;
     }
   }
@@ -185,6 +276,15 @@
     }
   }
 
+  function saveLocations() {
+    if (!storageAvailable) return;
+    try {
+      window.localStorage.setItem(LOCATIONS_KEY, JSON.stringify(locations));
+    } catch (e) {
+      console.warn("Location save failed.", e);
+    }
+  }
+
   function updateRuntimeStatus(message = "") {
     const el = $("runtimeStatus");
     if (!el) return;
@@ -192,6 +292,83 @@
       ? "✅ JavaScript起動済み・端末内保存が利用できます"
       : "⚠️ JavaScript起動済み・この開き方では端末内保存が使えないため一時保存で動作します";
     el.textContent = message ? `${mode}｜${message}` : mode;
+  }
+
+  function switchTab(tabName) {
+    const isList = tabName === "list";
+    $("registerTab").classList.toggle("hidden", isList);
+    $("listTab").classList.toggle("hidden", !isList);
+    document.querySelectorAll("[data-tab]").forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.tab === tabName);
+    });
+    if (isList) {
+      stopScanner();
+      render();
+    }
+  }
+
+  function renderLocations() {
+    const select = $("location");
+    const selected = select.value;
+    select.innerHTML = `<option value="">選択してください</option>` + locations.map(location =>
+      `<option value="${escapeHtml(location)}">${escapeHtml(location)}</option>`
+    ).join("");
+    if (locations.includes(selected)) select.value = selected;
+
+    if (!locations.length) {
+      $("locationList").innerHTML = `<div class="empty">保管場所はまだありません</div>`;
+      return;
+    }
+    $("locationList").innerHTML = locations.map((location, index) => `
+      <div class="location-row">
+        <span>${escapeHtml(location)}</span>
+        <button class="danger deleteLocationBtn" type="button" data-index="${index}">削除</button>
+      </div>`).join("");
+    document.querySelectorAll(".deleteLocationBtn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        locations.splice(Number(btn.dataset.index), 1);
+        saveLocations();
+        renderLocations();
+      });
+    });
+  }
+
+  function buildRegistration() {
+    return {
+      id: (window.crypto && typeof window.crypto.randomUUID === "function")
+        ? window.crypto.randomUUID()
+        : String(Date.now()) + "-" + Math.random().toString(16).slice(2),
+      productName: $("productName").value.trim(),
+      gtin: $("gtin").value.trim(),
+      lot: $("lot").value.trim(),
+      expiryMonth: $("expiryMonth").value,
+      expiryRaw: $("expiryRaw").value.trim(),
+      quantity: Number($("quantity").value || 1),
+      location: $("location").value,
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  function showRegistrationConfirmation(item) {
+    const rows = [
+      ["商品名", item.productName],
+      ["GTIN", item.gtin || "未設定"],
+      ["LOT", item.lot || "未設定"],
+      ["有効期限", formatYM(item.expiryMonth)],
+      ["数量", String(item.quantity)],
+      ["保管場所", item.location || "未選択"]
+    ];
+    $("confirmSummary").innerHTML = rows.map(([label, value]) =>
+      `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`
+    ).join("");
+    $("confirmDialog").showModal();
+  }
+
+  function resetRegistrationForm() {
+    ["productName","gtin","lot","expiryMonth","expiryRaw","rawGs1"].forEach(id => $(id).value = "");
+    $("location").value = "";
+    $("quantity").value = "1";
+    $("rawDisplay").classList.add("hidden");
   }
 
   function showScanSuccess() {
@@ -215,6 +392,9 @@
       try { scannerReader.reset(); } catch (e) { console.warn("Scanner reader reset failed.", e); }
     }
     scannerReader = null;
+    activeVideoTrack = null;
+    zoomState = null;
+    $("zoomControls").classList.add("hidden");
 
     const video = $("video");
     if (video && video.srcObject) {
@@ -225,6 +405,54 @@
       video.srcObject = null;
     }
     $("scannerBox").classList.add("hidden");
+  }
+
+  function setupZoomControls() {
+    const video = $("video");
+    const stream = video && video.srcObject;
+    if (!stream || typeof stream.getVideoTracks !== "function") return;
+    const track = stream.getVideoTracks()[0];
+    if (!track) return;
+    activeVideoTrack = track;
+
+    const capabilities = typeof track.getCapabilities === "function"
+      ? track.getCapabilities()
+      : {};
+    const settings = typeof track.getSettings === "function"
+      ? track.getSettings()
+      : {};
+    if (!capabilities.zoom || typeof track.applyConstraints !== "function") return;
+
+    zoomState = {
+      min: Number(capabilities.zoom.min || 1),
+      max: Number(capabilities.zoom.max || 1),
+      step: Number(capabilities.zoom.step || 0.1),
+      value: Number(settings.zoom || capabilities.zoom.min || 1)
+    };
+    $("zoomControls").classList.remove("hidden");
+    updateZoomLabel();
+  }
+
+  function updateZoomLabel() {
+    if (!zoomState) return;
+    $("zoomValue").textContent = `ズーム ${zoomState.value.toFixed(1)}×`;
+    $("zoomOutBtn").disabled = zoomState.value <= zoomState.min;
+    $("zoomInBtn").disabled = zoomState.value >= zoomState.max;
+  }
+
+  async function changeZoom(direction) {
+    if (!activeVideoTrack || !zoomState) return;
+    const next = Math.min(
+      zoomState.max,
+      Math.max(zoomState.min, zoomState.value + zoomState.step * direction)
+    );
+    try {
+      await activeVideoTrack.applyConstraints({ advanced:[{ zoom:next }] });
+      zoomState.value = next;
+      updateZoomLabel();
+    } catch (e) {
+      console.warn("Camera zoom failed.", e);
+    }
   }
 
   function normalizeGs1(raw) {
@@ -419,25 +647,26 @@
     if (!$("productName").value.trim()) return alert("商品名を入力してください。");
     if (!expiryMonth) return alert("有効期限（月）を入力してください。");
 
-    items.push({
-      id: (window.crypto && typeof window.crypto.randomUUID === "function")
-        ? window.crypto.randomUUID()
-        : String(Date.now()) + "-" + Math.random().toString(16).slice(2),
-      productName: $("productName").value.trim(),
-      gtin: $("gtin").value.trim(),
-      lot: $("lot").value.trim(),
-      expiryMonth,
-      expiryRaw: $("expiryRaw").value.trim(),
-      quantity: Number($("quantity").value || 1),
-      location: $("location").value.trim(),
-      createdAt: new Date().toISOString()
-    });
+    pendingRegistration = buildRegistration();
+    showRegistrationConfirmation(pendingRegistration);
+  });
+
+  $("confirmRegisterBtn").addEventListener("click", () => {
+    if (!pendingRegistration) return;
+    items.push(pendingRegistration);
     saveStorage();
-    ["productName","gtin","lot","expiryMonth","expiryRaw","location","rawGs1"].forEach(id => $(id).value = "");
-    $("quantity").value = "1";
-    $("rawDisplay").classList.add("hidden");
+    pendingRegistration = null;
+    $("confirmDialog").close();
+    resetRegistrationForm();
     filter = "all";
     render();
+    updateRuntimeStatus("登録しました");
+    switchTab("list");
+  });
+
+  $("cancelRegisterBtn").addEventListener("click", () => {
+    pendingRegistration = null;
+    $("confirmDialog").close();
   });
 
   document.querySelectorAll("[data-filter]").forEach(btn => {
@@ -447,11 +676,39 @@
   $("search").addEventListener("input", render);
 
   $("clearBtn").addEventListener("click", () => {
-    if (!confirm("登録データをすべて削除しますか？")) return;
+    if (!confirm("登録データをすべて削除しますか？この操作は元に戻せません。")) return;
     items = [];
     saveStorage();
     render();
     updateRuntimeStatus("登録データをクリアしました");
+  });
+
+  document.querySelectorAll("[data-tab]").forEach(btn => {
+    btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+  });
+
+  $("settingsBtn").addEventListener("click", () => {
+    renderLocations();
+    $("settingsDialog").showModal();
+  });
+  $("closeSettingsBtn").addEventListener("click", () => $("settingsDialog").close());
+
+  $("addLocationBtn").addEventListener("click", () => {
+    const location = $("newLocation").value.trim();
+    if (!location) return;
+    if (!locations.includes(location)) {
+      locations.push(location);
+      locations.sort((a,b) => a.localeCompare(b, "ja"));
+      saveLocations();
+    }
+    $("newLocation").value = "";
+    renderLocations();
+  });
+  $("newLocation").addEventListener("keydown", event => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      $("addLocationBtn").click();
+    }
   });
 
   $("exportBtn").addEventListener("click", () => {
@@ -473,8 +730,26 @@
     try {
       stopScanner();
       $("scannerBox").classList.remove("hidden");
-      scannerReader = new ZXing.BrowserMultiFormatReader();
-      controls = await scannerReader.decodeFromVideoDevice(undefined, $("video"), (result, err) => {
+      const hints = new Map();
+      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+      hints.set(ZXing.DecodeHintType.ASSUME_GS1, true);
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+        ZXing.BarcodeFormat.DATA_MATRIX,
+        ZXing.BarcodeFormat.CODE_128,
+        ZXing.BarcodeFormat.RSS_14,
+        ZXing.BarcodeFormat.RSS_EXPANDED
+      ]);
+      scannerReader = new ZXing.BrowserMultiFormatReader(hints, 300);
+      $("video").addEventListener("playing", setupZoomControls, { once:true });
+      controls = await scannerReader.decodeFromConstraints({
+        video:{
+          facingMode:{ ideal:"environment" },
+          width:{ ideal:1920 },
+          height:{ ideal:1080 },
+          aspectRatio:{ ideal:16 / 9 }
+        },
+        audio:false
+      }, $("video"), (result, err) => {
         if (result) {
           const text = result.getText();
           $("rawGs1").value = text;
@@ -496,7 +771,12 @@
     updateRuntimeStatus("スキャンを停止しました");
   });
 
+  $("zoomOutBtn").addEventListener("click", () => changeZoom(-1));
+  $("zoomInBtn").addEventListener("click", () => changeZoom(1));
+
   loadStorage();
+  saveLocations();
+  renderLocations();
   render();
   updateRuntimeStatus();
 })();
