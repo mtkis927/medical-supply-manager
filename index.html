@@ -157,6 +157,7 @@
   let items = [];
   let filter = "all";
   let controls = null;
+  let scannerReader = null;
   let scanSuccessTimer = null;
 
   const $ = id => document.getElementById(id);
@@ -202,6 +203,28 @@
       el.classList.add("hidden");
       scanSuccessTimer = null;
     }, 4000);
+  }
+
+  function stopScanner() {
+    if (controls && typeof controls.stop === "function") {
+      try { controls.stop(); } catch (e) { console.warn("Scanner controls stop failed.", e); }
+    }
+    controls = null;
+
+    if (scannerReader && typeof scannerReader.reset === "function") {
+      try { scannerReader.reset(); } catch (e) { console.warn("Scanner reader reset failed.", e); }
+    }
+    scannerReader = null;
+
+    const video = $("video");
+    if (video && video.srcObject) {
+      const tracks = typeof video.srcObject.getTracks === "function"
+        ? video.srcObject.getTracks()
+        : [];
+      tracks.forEach(track => track.stop());
+      video.srcObject = null;
+    }
+    $("scannerBox").classList.add("hidden");
   }
 
   function normalizeGs1(raw) {
@@ -443,32 +466,34 @@
   $("scanBtn").addEventListener("click", async () => {
     $("scannerBox").classList.remove("hidden");
     if (!window.ZXing) {
+      stopScanner();
       alert("ZXingライブラリを読み込めませんでした。インターネット接続を確認してください。");
       return;
     }
     try {
-      const reader = new ZXing.BrowserMultiFormatReader();
-      controls = await reader.decodeFromVideoDevice(undefined, $("video"), (result, err) => {
+      stopScanner();
+      $("scannerBox").classList.remove("hidden");
+      scannerReader = new ZXing.BrowserMultiFormatReader();
+      controls = await scannerReader.decodeFromVideoDevice(undefined, $("video"), (result, err) => {
         if (result) {
           const text = result.getText();
           $("rawGs1").value = text;
           applyParsed(text);
           showScanSuccess();
           updateRuntimeStatus("GS1読み取りに成功しました");
-          if (controls && controls.stop) controls.stop();
-          $("scannerBox").classList.add("hidden");
+          stopScanner();
         }
       });
     } catch (e) {
       console.error(e);
+      stopScanner();
       alert("カメラを起動できませんでした。HTTPSまたはlocalhostで開き、カメラ許可を確認してください。");
     }
   });
 
   $("stopScanBtn").addEventListener("click", () => {
-    if (controls && controls.stop) controls.stop();
-    controls = null;
-    $("scannerBox").classList.add("hidden");
+    stopScanner();
+    updateRuntimeStatus("スキャンを停止しました");
   });
 
   loadStorage();
