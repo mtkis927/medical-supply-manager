@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#f7f7f8" />
-  <title>期限チェッカー MVP v3.2</title>
+  <title>期限チェッカー MVP v3.3</title>
   <style>
     :root {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -63,22 +63,22 @@
     .empty { color:#777; text-align:center; padding:22px 8px; }
     .toolbar { display:flex; gap:8px; margin-bottom:8px; }
     .toolbar input { flex:1; }
-    .app-tabs { position:sticky; top:0; z-index:5; display:grid; grid-template-columns:1fr 1fr; gap:6px; margin:12px 0; padding:5px; border:1px solid var(--border); border-radius:16px; background:rgba(255,255,255,.94); backdrop-filter:blur(12px); }
-    .app-tabs button { border:0; border-radius:11px; padding:11px; background:transparent; color:#666; font-size:15px; font-weight:700; }
-    .app-tabs button.active { background:#111; color:#fff; }
+    .screen-header { display:flex; align-items:center; gap:10px; margin:14px 0 8px; }
+    .screen-header h2 { margin:0; font-size:21px; }
+    .back-button { width:auto; min-width:44px; border:1px solid #d8d8dc; border-radius:12px; padding:9px 11px; background:white; font-size:15px; }
+    .home-actions { display:grid; gap:10px; }
+    .home-actions button { text-align:left; padding:16px; }
+    .home-actions .action-title { display:block; font-weight:700; font-size:17px; }
+    .home-actions .action-note { display:block; margin-top:4px; color:#666; font-size:13px; font-weight:400; }
     dialog { width:min(560px, calc(100% - 28px)); max-height:85vh; padding:0; border:0; border-radius:20px; box-shadow:0 20px 60px rgba(0,0,0,.25); }
     dialog::backdrop { background:rgba(0,0,0,.38); }
     .dialog-body { padding:18px; overflow:auto; }
     .dialog-header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
     .dialog-header h2 { margin:0; font-size:21px; }
-    .dialog-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:16px; }
     .settings-section { padding:14px 0; border-top:1px solid #eee; }
     .settings-section:first-of-type { border-top:0; }
     .inline-add { display:grid; grid-template-columns:1fr auto; gap:8px; }
     .location-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 0; border-top:1px solid #eee; }
-    .confirm-grid { display:grid; grid-template-columns:auto 1fr; gap:8px 14px; margin:0; }
-    .confirm-grid dt { color:#666; }
-    .confirm-grid dd { margin:0; font-weight:600; overflow-wrap:anywhere; }
     @media (max-width:600px) {
       .summary { grid-template-columns:1fr 1fr; }
       .row { grid-template-columns:1fr; }
@@ -96,19 +96,40 @@
     起動確認中…
   </div>
 
-  <nav class="app-tabs" aria-label="画面切り替え">
-    <button class="active" type="button" data-tab="register">読取・登録</button>
-    <button type="button" data-tab="list">期限順一覧</button>
-  </nav>
+  <div id="homeView" class="app-view">
+    <section class="summary">
+      <button class="expired" data-filter="expired">期限切れ<span class="n" id="countExpired">0</span></button>
+      <button class="thismonth" data-filter="thismonth">今月<span class="n" id="countThis">0</span></button>
+      <button class="nextmonth" data-filter="nextmonth">翌月<span class="n" id="countNext">0</span></button>
+      <button class="within3" data-filter="within3">3か月以内<span class="n" id="count3">0</span></button>
+    </section>
+    <section class="card home-actions">
+      <button id="openScannerBtn" class="primary" type="button">
+        <span class="action-title">📷 カメラで読み取る</span>
+        <span class="action-note" style="color:#ddd">GS1バーコードをカメラで読み取ります</span>
+      </button>
+      <button id="openManualBtn" class="secondary" type="button">
+        <span class="action-title">⌨️ GS1文字列を入力</span>
+        <span class="action-note">コードを入力して解析します</span>
+      </button>
+      <button id="openListBtn" class="secondary" type="button">
+        <span class="action-title">📋 期限順一覧を見る</span>
+        <span class="action-note">登録済みデータを期限順に確認します</span>
+      </button>
+    </section>
+  </div>
 
-  <div id="registerTab" class="tab-panel">
-  <section class="card">
-    <button id="scanBtn" class="primary">📷 GS1をスキャン</button>
+  <div id="scannerView" class="app-view hidden">
+    <div class="screen-header">
+      <button class="back-button" type="button" data-back-home>← 戻る</button>
+      <h2>カメラで読み取る</h2>
+    </div>
+    <section class="card">
     <div id="scanSuccess" class="scan-success hidden" role="status" aria-live="polite">
       <span class="scan-success-icon" aria-hidden="true">✓</span>
-      <span>GS1を読み取りました</span>
+      <span>GS1を読み取りました。カメラを停止しています…</span>
     </div>
-    <div id="scannerBox" class="hidden" style="margin-top:12px">
+    <div id="scannerBox">
       <div class="scanner-stage">
         <video id="video" muted playsinline></video>
         <div class="scan-guide" aria-hidden="true"></div>
@@ -123,20 +144,30 @@
       </div>
       <p class="scanner-note">コードを白い枠いっぱいに水平に合わせ、反射を避けて静止してください。小さいコードは、ピントが合う距離を保ちながらズームしてください。</p>
     </div>
-  </section>
+    </section>
+  </div>
 
-  <section class="card">
-    <strong>GS1文字列を手入力してテスト</strong>
-    <p class="scanner-note">実物スキャン前の動作確認用。括弧付き表記も入力できます。</p>
-    <div class="field">
-      <textarea id="rawGs1" placeholder="例：(01)04912345678901(17)270300(10)ABC123"></textarea>
+  <div id="manualView" class="app-view hidden">
+    <div class="screen-header">
+      <button class="back-button" type="button" data-back-home>← 戻る</button>
+      <h2>GS1文字列を入力</h2>
     </div>
-    <button id="parseBtn" class="secondary">GS1を解析</button>
-    <div id="rawDisplay" class="raw-result hidden" style="margin-top:10px"></div>
-  </section>
+    <section class="card">
+      <p class="scanner-note">括弧付き表記も入力できます。</p>
+      <div class="field">
+        <textarea id="rawGs1" placeholder="例：(01)04912345678901(17)270300(10)ABC123"></textarea>
+      </div>
+      <button id="parseBtn" class="primary" type="button">GS1を解析する</button>
+    </section>
+  </div>
 
-  <section class="card">
-    <strong>登録内容</strong>
+  <div id="registrationView" class="app-view hidden">
+    <div class="screen-header">
+      <button id="backFromRegistrationBtn" class="back-button" type="button">← 戻る</button>
+      <h2>登録内容を確認</h2>
+    </div>
+    <section class="card">
+    <div id="rawDisplay" class="raw-result hidden" style="margin-bottom:12px"></div>
     <div class="field">
       <label>商品名</label>
       <input id="productName" placeholder="例：○○注射液 20mg" />
@@ -168,25 +199,29 @@
       </select>
     </div>
     <input id="expiryRaw" type="hidden" />
-    <button id="saveBtn" class="primary">登録する</button>
-  </section>
+    <button id="saveBtn" class="primary">この内容で登録する</button>
+    </section>
   </div>
 
-  <div id="listTab" class="tab-panel hidden">
-  <section class="summary">
-    <button class="expired" data-filter="expired">期限切れ<span class="n" id="countExpired">0</span></button>
-    <button class="thismonth" data-filter="thismonth">今月<span class="n" id="countThis">0</span></button>
-    <button class="nextmonth" data-filter="nextmonth">翌月<span class="n" id="countNext">0</span></button>
-    <button class="within3" data-filter="within3">3か月以内<span class="n" id="count3">0</span></button>
-  </section>
-  <section class="card">
+  <div id="listView" class="app-view hidden">
+    <div class="screen-header">
+      <button class="back-button" type="button" data-back-home>← 戻る</button>
+      <h2>期限順一覧</h2>
+    </div>
+    <section class="summary">
+      <button class="expired" data-filter="expired">期限切れ<span class="n" id="listCountExpired">0</span></button>
+      <button class="thismonth" data-filter="thismonth">今月<span class="n" id="listCountThis">0</span></button>
+      <button class="nextmonth" data-filter="nextmonth">翌月<span class="n" id="listCountNext">0</span></button>
+      <button class="within3" data-filter="within3">3か月以内<span class="n" id="listCount3">0</span></button>
+    </section>
+    <section class="card">
     <div class="toolbar">
       <input id="search" placeholder="商品名・LOT・GTINで検索" />
       <button id="showAllBtn" class="secondary" style="width:auto">全件</button>
     </div>
     <div id="filterLabel" class="scanner-note">期限順一覧</div>
     <div id="list"></div>
-  </section>
+    </section>
   </div>
 </main>
 
@@ -215,19 +250,6 @@
   </div>
 </dialog>
 
-<dialog id="confirmDialog" aria-labelledby="confirmTitle">
-  <div class="dialog-body">
-    <div class="dialog-header">
-      <h2 id="confirmTitle">この内容で合っていますか？</h2>
-    </div>
-    <dl id="confirmSummary" class="confirm-grid"></dl>
-    <div class="dialog-actions">
-      <button id="cancelRegisterBtn" class="secondary" type="button">戻って修正</button>
-      <button id="confirmRegisterBtn" class="primary" type="button">この内容で登録</button>
-    </div>
-  </div>
-</dialog>
-
 <script src="https://unpkg.com/@zxing/library@0.23.0/umd/index.min.js"></script>
 <script>
 (() => {
@@ -236,13 +258,14 @@
   let storageAvailable = true;
   let items = [];
   let locations = [];
-  let pendingRegistration = null;
   let filter = "all";
   let controls = null;
   let scannerReader = null;
   let activeVideoTrack = null;
   let zoomState = null;
   let scanSuccessTimer = null;
+  let scanHandled = false;
+  let registrationSource = "home";
 
   const $ = id => document.getElementById(id);
 
@@ -294,17 +317,13 @@
     el.textContent = message ? `${mode}｜${message}` : mode;
   }
 
-  function switchTab(tabName) {
-    const isList = tabName === "list";
-    $("registerTab").classList.toggle("hidden", isList);
-    $("listTab").classList.toggle("hidden", !isList);
-    document.querySelectorAll("[data-tab]").forEach(btn => {
-      btn.classList.toggle("active", btn.dataset.tab === tabName);
+  function showView(viewName) {
+    document.querySelectorAll(".app-view").forEach(view => {
+      view.classList.toggle("hidden", view.id !== `${viewName}View`);
     });
-    if (isList) {
-      stopScanner();
-      render();
-    }
+    if (viewName !== "scanner") stopScanner();
+    if (viewName === "list" || viewName === "home") render();
+    window.scrollTo({ top:0, behavior:"auto" });
   }
 
   function renderLocations() {
@@ -349,21 +368,6 @@
     };
   }
 
-  function showRegistrationConfirmation(item) {
-    const rows = [
-      ["商品名", item.productName],
-      ["GTIN", item.gtin || "未設定"],
-      ["LOT", item.lot || "未設定"],
-      ["有効期限", formatYM(item.expiryMonth)],
-      ["数量", String(item.quantity)],
-      ["保管場所", item.location || "未選択"]
-    ];
-    $("confirmSummary").innerHTML = rows.map(([label, value]) =>
-      `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`
-    ).join("");
-    $("confirmDialog").showModal();
-  }
-
   function resetRegistrationForm() {
     ["productName","gtin","lot","expiryMonth","expiryRaw","rawGs1"].forEach(id => $(id).value = "");
     $("location").value = "";
@@ -383,6 +387,19 @@
   }
 
   function stopScanner() {
+    const video = $("video");
+    const stream = video && video.srcObject;
+    const tracks = stream && typeof stream.getTracks === "function" ? stream.getTracks() : [];
+    tracks.forEach(track => {
+      try { track.stop(); } catch (e) { console.warn("Camera track stop failed.", e); }
+    });
+    if (video) {
+      video.pause();
+      video.srcObject = null;
+      video.removeAttribute("src");
+      video.load();
+    }
+
     if (controls && typeof controls.stop === "function") {
       try { controls.stop(); } catch (e) { console.warn("Scanner controls stop failed.", e); }
     }
@@ -396,15 +413,10 @@
     zoomState = null;
     $("zoomControls").classList.add("hidden");
 
-    const video = $("video");
-    if (video && video.srcObject) {
-      const tracks = typeof video.srcObject.getTracks === "function"
-        ? video.srcObject.getTracks()
-        : [];
-      tracks.forEach(track => track.stop());
-      video.srcObject = null;
-    }
-    $("scannerBox").classList.add("hidden");
+  }
+
+  function waitForCameraRelease() {
+    return new Promise(resolve => window.setTimeout(resolve, 350));
   }
 
   function setupZoomControls() {
@@ -576,6 +588,10 @@
     $("countThis").textContent = counts.thismonth;
     $("countNext").textContent = counts.nextmonth;
     $("count3").textContent = counts.within3;
+    $("listCountExpired").textContent = counts.expired;
+    $("listCountThis").textContent = counts.thismonth;
+    $("listCountNext").textContent = counts.nextmonth;
+    $("listCount3").textContent = counts.within3;
 
     const q = $("search").value.trim().toLowerCase();
     let visible = items.filter(x => {
@@ -635,6 +651,8 @@
       }
       applyParsed(raw);
       updateRuntimeStatus("GS1解析に成功しました");
+      registrationSource = "manual";
+      showView("registration");
     } catch (e) {
       console.error(e);
       updateRuntimeStatus("解析中にエラーが発生しました");
@@ -647,30 +665,21 @@
     if (!$("productName").value.trim()) return alert("商品名を入力してください。");
     if (!expiryMonth) return alert("有効期限（月）を入力してください。");
 
-    pendingRegistration = buildRegistration();
-    showRegistrationConfirmation(pendingRegistration);
-  });
-
-  $("confirmRegisterBtn").addEventListener("click", () => {
-    if (!pendingRegistration) return;
-    items.push(pendingRegistration);
+    items.push(buildRegistration());
     saveStorage();
-    pendingRegistration = null;
-    $("confirmDialog").close();
     resetRegistrationForm();
     filter = "all";
     render();
     updateRuntimeStatus("登録しました");
-    switchTab("list");
-  });
-
-  $("cancelRegisterBtn").addEventListener("click", () => {
-    pendingRegistration = null;
-    $("confirmDialog").close();
+    showView("home");
   });
 
   document.querySelectorAll("[data-filter]").forEach(btn => {
-    btn.addEventListener("click", () => { filter = btn.dataset.filter; render(); });
+    btn.addEventListener("click", () => {
+      filter = btn.dataset.filter;
+      render();
+      showView("list");
+    });
   });
   $("showAllBtn").addEventListener("click", () => { filter = "all"; render(); });
   $("search").addEventListener("input", render);
@@ -683,8 +692,16 @@
     updateRuntimeStatus("登録データをクリアしました");
   });
 
-  document.querySelectorAll("[data-tab]").forEach(btn => {
-    btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+  document.querySelectorAll("[data-back-home]").forEach(btn => {
+    btn.addEventListener("click", () => showView("home"));
+  });
+  $("openManualBtn").addEventListener("click", () => showView("manual"));
+  $("openListBtn").addEventListener("click", () => {
+    filter = "all";
+    showView("list");
+  });
+  $("backFromRegistrationBtn").addEventListener("click", () => {
+    showView(registrationSource === "manual" ? "manual" : "home");
   });
 
   $("settingsBtn").addEventListener("click", () => {
@@ -720,8 +737,10 @@
     URL.revokeObjectURL(a.href);
   });
 
-  $("scanBtn").addEventListener("click", async () => {
-    $("scannerBox").classList.remove("hidden");
+  $("openScannerBtn").addEventListener("click", async () => {
+    showView("scanner");
+    scanHandled = false;
+    $("scanSuccess").classList.add("hidden");
     if (!window.ZXing) {
       stopScanner();
       alert("ZXingライブラリを読み込めませんでした。インターネット接続を確認してください。");
@@ -729,7 +748,6 @@
     }
     try {
       stopScanner();
-      $("scannerBox").classList.remove("hidden");
       const hints = new Map();
       hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
       hints.set(ZXing.DecodeHintType.ASSUME_GS1, true);
@@ -749,14 +767,19 @@
           aspectRatio:{ ideal:16 / 9 }
         },
         audio:false
-      }, $("video"), (result, err) => {
-        if (result) {
+      }, $("video"), async (result, err) => {
+        if (result && !scanHandled) {
+          scanHandled = true;
           const text = result.getText();
           $("rawGs1").value = text;
           applyParsed(text);
           showScanSuccess();
-          updateRuntimeStatus("GS1読み取りに成功しました");
+          updateRuntimeStatus("GS1読み取り成功・カメラ停止中");
           stopScanner();
+          await waitForCameraRelease();
+          registrationSource = "scanner";
+          updateRuntimeStatus("GS1読み取りに成功しました");
+          showView("registration");
         }
       });
     } catch (e) {
@@ -769,6 +792,7 @@
   $("stopScanBtn").addEventListener("click", () => {
     stopScanner();
     updateRuntimeStatus("スキャンを停止しました");
+    showView("home");
   });
 
   $("zoomOutBtn").addEventListener("click", () => changeZoom(-1));
@@ -779,6 +803,7 @@
   renderLocations();
   render();
   updateRuntimeStatus();
+  showView("home");
 })();
 </script>
 </body>
