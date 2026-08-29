@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#f7f7f8" />
-  <title>期限チェッカー MVP v3.4</title>
+  <title>期限チェッカー MVP v3.5</title>
   <style>
     :root {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -94,6 +94,9 @@
     .settings-section:first-of-type { border-top:0; }
     .inline-add { display:grid; grid-template-columns:1fr auto; gap:8px; }
     .location-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 0; border-top:1px solid #eee; }
+    .location-actions { display:flex; align-items:center; gap:5px; }
+    .order-button { width:36px; height:36px; border:1px solid #ccc; border-radius:10px; background:#fff; font-size:17px; }
+    .order-button:disabled { opacity:.3; }
     @media (max-width:600px) {
       .summary { grid-template-columns:1fr 1fr; }
       .row { grid-template-columns:1fr; }
@@ -131,12 +134,17 @@
         <span class="action-title">⌨️ GS1文字列を入力</span>
         <span class="action-note">コード文字列が分かる場合の補助入力です</span>
       </button>
+      <button id="openImageBtn" class="secondary" type="button">
+        <span class="action-title">🖼️ GS1コードの画像を選ぶ</span>
+        <span class="action-note">画像は端末内だけで解析し、保存・送信しません</span>
+      </button>
       <button id="openListBtn" class="secondary" type="button">
         <span class="action-title">📋 期限順一覧を見る</span>
         <span class="action-note">登録済みデータを期限順に確認します</span>
       </button>
     </section>
   </div>
+  <input id="imageInput" class="hidden" type="file" accept="image/*" />
 
   <div id="scannerView" class="app-view scanner-fullscreen hidden">
     <div class="scanner-topbar">
@@ -297,7 +305,7 @@
       items.forEach(item => {
         if (item.location && !locations.includes(item.location)) locations.push(item.location);
       });
-      locations = locations.filter(Boolean).sort((a,b) => a.localeCompare(b, "ja"));
+      locations = locations.filter(Boolean);
       storageAvailable = true;
     } catch (e) {
       console.warn("localStorage unavailable; using memory only.", e);
@@ -352,7 +360,11 @@
     select.innerHTML = `<option value="">選択してください</option>` + locations.map(location =>
       `<option value="${escapeHtml(location)}">${escapeHtml(location)}</option>`
     ).join("");
-    if (locations.includes(selected)) select.value = selected;
+    if (locations.includes(selected)) {
+      select.value = selected;
+    } else if (locations.length) {
+      select.value = locations[0];
+    }
 
     if (!locations.length) {
       $("locationList").innerHTML = `<div class="empty">保管場所はまだありません</div>`;
@@ -361,8 +373,22 @@
     $("locationList").innerHTML = locations.map((location, index) => `
       <div class="location-row">
         <span>${escapeHtml(location)}</span>
-        <button class="danger deleteLocationBtn" type="button" data-index="${index}">削除</button>
+        <div class="location-actions">
+          <button class="order-button moveLocationBtn" type="button" data-index="${index}" data-direction="-1" aria-label="${escapeHtml(location)}を上へ" ${index === 0 ? "disabled" : ""}>↑</button>
+          <button class="order-button moveLocationBtn" type="button" data-index="${index}" data-direction="1" aria-label="${escapeHtml(location)}を下へ" ${index === locations.length - 1 ? "disabled" : ""}>↓</button>
+          <button class="danger deleteLocationBtn" type="button" data-index="${index}">削除</button>
+        </div>
       </div>`).join("");
+    document.querySelectorAll(".moveLocationBtn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const from = Number(btn.dataset.index);
+        const to = from + Number(btn.dataset.direction);
+        if (to < 0 || to >= locations.length) return;
+        [locations[from], locations[to]] = [locations[to], locations[from]];
+        saveLocations();
+        renderLocations();
+      });
+    });
     document.querySelectorAll(".deleteLocationBtn").forEach(btn => {
       btn.addEventListener("click", () => {
         locations.splice(Number(btn.dataset.index), 1);
@@ -390,7 +416,7 @@
 
   function resetRegistrationForm() {
     ["productName","gtin","lot","expiryMonth","expiryRaw","rawGs1"].forEach(id => $(id).value = "");
-    $("location").value = "";
+    $("location").value = locations[0] || "";
     $("quantity").value = "1";
     $("rawDisplay").classList.add("hidden");
   }
@@ -437,6 +463,19 @@
 
   function waitForCameraRelease() {
     return new Promise(resolve => window.setTimeout(resolve, 350));
+  }
+
+  function createDecodeHints() {
+    const hints = new Map();
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    hints.set(ZXing.DecodeHintType.ASSUME_GS1, true);
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+      ZXing.BarcodeFormat.DATA_MATRIX,
+      ZXing.BarcodeFormat.CODE_128,
+      ZXing.BarcodeFormat.RSS_14,
+      ZXing.BarcodeFormat.RSS_EXPANDED
+    ]);
+    return hints;
   }
 
   function setupZoomControls() {
@@ -571,6 +610,7 @@
       const previous = items.find(x => x.gtin === r.gtin && x.productName);
       if (previous && !$("productName").value) $("productName").value = previous.productName;
     }
+    return r;
   }
 
   function monthIndex(ym) {
@@ -741,7 +781,6 @@
     if (!location) return;
     if (!locations.includes(location)) {
       locations.push(location);
-      locations.sort((a,b) => a.localeCompare(b, "ja"));
       saveLocations();
     }
     $("newLocation").value = "";
@@ -763,6 +802,41 @@
     URL.revokeObjectURL(a.href);
   });
 
+  $("openImageBtn").addEventListener("click", () => {
+    $("imageInput").value = "";
+    $("imageInput").click();
+  });
+
+  $("imageInput").addEventListener("change", async event => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    if (!window.ZXing) {
+      alert("ZXingライブラリを読み込めませんでした。インターネット接続を確認してください。");
+      return;
+    }
+
+    const imageUrl = URL.createObjectURL(file);
+    const imageReader = new ZXing.BrowserMultiFormatReader(createDecodeHints());
+    updateRuntimeStatus("画像を解析しています");
+    try {
+      const result = await imageReader.decodeFromImageUrl(imageUrl);
+      const parsed = applyParsed(result.getText());
+      registrationSource = "image";
+      updateRuntimeStatus(parsed.gtin || parsed.lot || parsed.expiryMonth
+        ? "画像からGS1を読み取りました"
+        : "コードを読み取りました。登録内容を確認してください");
+      showView("registration");
+    } catch (e) {
+      console.warn("Image barcode decode failed.", e);
+      updateRuntimeStatus("画像からコードを読み取れませんでした");
+      alert("画像からGS1コードを読み取れませんでした。コードを大きく、正面から、明るく撮影して再度お試しください。");
+    } finally {
+      try { imageReader.reset(); } catch (e) { console.warn("Image reader reset failed.", e); }
+      URL.revokeObjectURL(imageUrl);
+      event.target.value = "";
+    }
+  });
+
   $("openScannerBtn").addEventListener("click", async () => {
     showView("scanner");
     scanHandled = false;
@@ -774,16 +848,7 @@
     }
     try {
       stopScanner();
-      const hints = new Map();
-      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-      hints.set(ZXing.DecodeHintType.ASSUME_GS1, true);
-      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-        ZXing.BarcodeFormat.DATA_MATRIX,
-        ZXing.BarcodeFormat.CODE_128,
-        ZXing.BarcodeFormat.RSS_14,
-        ZXing.BarcodeFormat.RSS_EXPANDED
-      ]);
-      scannerReader = new ZXing.BrowserMultiFormatReader(hints, 300);
+      scannerReader = new ZXing.BrowserMultiFormatReader(createDecodeHints(), 300);
       $("video").addEventListener("playing", setupZoomControls, { once:true });
       controls = await scannerReader.decodeFromConstraints({
         video:{
