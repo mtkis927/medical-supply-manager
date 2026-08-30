@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#f7f7f8" />
-  <title>期限チェッカー MVP v3.6</title>
+  <title>期限チェッカー MVP v3.7</title>
   <style>
     :root {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -67,8 +67,9 @@
     .screen-header { display:flex; align-items:center; gap:10px; margin:14px 0 8px; }
     .screen-header h2 { margin:0; font-size:21px; }
     .back-button { width:auto; min-width:44px; border:1px solid #d8d8dc; border-radius:12px; padding:9px 11px; background:white; font-size:15px; }
-    .home-actions { display:grid; gap:10px; }
-    .home-actions button { text-align:left; padding:16px; }
+    .home-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .home-actions button { text-align:left; padding:13px; min-height:76px; }
+    .home-actions .primary { grid-column:1 / -1; min-height:82px; }
     .home-actions .action-title { display:block; font-weight:700; font-size:17px; }
     .home-actions .action-note { display:block; margin-top:4px; color:#666; font-size:13px; font-weight:400; }
     .scanner-fullscreen { position:fixed; inset:0; z-index:100; display:flex; flex-direction:column; width:100%; height:100dvh; background:#050505; color:#fff; }
@@ -85,18 +86,16 @@
     .scanner-bottom .zoom-controls button, .scanner-bottom .secondary { border-color:#555; background:#222; color:#fff; }
     .scanner-bottom .zoom-value { color:#eee; }
     .scanner-fullscreen .scan-success { position:absolute; top:calc(70px + env(safe-area-inset-top)); left:16px; right:16px; z-index:3; margin:0; }
-    dialog { width:min(560px, calc(100% - 28px)); max-height:85vh; padding:0; border:0; border-radius:20px; box-shadow:0 20px 60px rgba(0,0,0,.25); }
+    dialog { width:min(560px, calc(100% - 28px)); max-height:calc(100dvh - 28px); padding:0; border:0; border-radius:20px; box-shadow:0 20px 60px rgba(0,0,0,.25); }
     dialog::backdrop { background:rgba(0,0,0,.38); }
     .dialog-body { padding:18px; overflow:auto; }
     .dialog-header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
     .dialog-header h2 { margin:0; font-size:21px; }
-    .settings-section { padding:14px 0; border-top:1px solid #eee; }
+    .settings-section { padding:10px 0; border-top:1px solid #eee; }
     .settings-section:first-of-type { border-top:0; }
     .inline-add { display:grid; grid-template-columns:1fr auto; gap:8px; }
-    .location-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 0; border-top:1px solid #eee; }
+    .location-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:7px 0; border-top:1px solid #eee; }
     .location-actions { display:flex; align-items:center; gap:5px; }
-    .order-button { width:36px; height:36px; border:1px solid #ccc; border-radius:10px; background:#fff; font-size:17px; }
-    .order-button:disabled { opacity:.3; }
     .drag-handle { width:40px; height:40px; border:1px solid #bbb; border-radius:10px; background:#f7f7f8; font-size:20px; cursor:grab; touch-action:none; user-select:none; }
     .drag-handle:active { cursor:grabbing; }
     .location-row.drag-source { opacity:.45; }
@@ -106,6 +105,24 @@
     @media (max-width:600px) {
       .summary { grid-template-columns:1fr 1fr; }
       .row { grid-template-columns:1fr; }
+      .app { padding:8px 12px 20px; }
+      .app-header { margin:2px 0; }
+      h1 { font-size:25px; }
+      .sub { margin:0 0 8px; font-size:12px; }
+      #runtimeStatus { margin:8px 0; padding:7px 10px !important; font-size:12px !important; }
+      .summary { gap:6px; }
+      .summary button { padding:7px 5px; }
+      .summary .n { font-size:20px; margin-top:0; }
+      .card.home-actions { margin:8px 0; padding:10px; }
+      .home-actions { grid-template-columns:1fr 1fr; gap:7px; }
+      .home-actions button, .home-actions .primary { min-height:68px; padding:10px; }
+      .home-actions .action-title { font-size:15px; }
+      .home-actions .action-note { font-size:11px; margin-top:2px; }
+      .dialog-body { padding:14px; }
+      .dialog-header { margin-bottom:6px; }
+      .settings-section .scanner-note { margin:5px 0 8px; font-size:12px; }
+      .settings-data-actions { display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-top:7px; }
+      .settings-data-actions button { padding:10px 7px; font-size:13px; }
     }
   </style>
 </head>
@@ -140,17 +157,12 @@
         <span class="action-title">⌨️ GS1文字列を入力</span>
         <span class="action-note">コード文字列が分かる場合の補助入力です</span>
       </button>
-      <button id="openImageBtn" class="secondary" type="button">
-        <span class="action-title">🖼️ GS1コードの画像を選ぶ</span>
-        <span class="action-note">画像は端末内だけで解析し、保存・送信しません</span>
-      </button>
       <button id="openListBtn" class="secondary" type="button">
         <span class="action-title">📋 期限順一覧を見る</span>
         <span class="action-note">登録済みデータを期限順に確認します</span>
       </button>
     </section>
   </div>
-  <input id="imageInput" class="hidden" type="file" accept="image/*" />
 
   <div id="scannerView" class="app-view scanner-fullscreen hidden">
     <div class="scanner-topbar">
@@ -275,15 +287,13 @@
     </section>
     <section class="settings-section">
       <strong>データ管理</strong>
-      <div style="height:10px"></div>
-      <button id="exportBtn" class="secondary" type="button">データを書き出す（JSON）</button>
-      <div style="height:8px"></div>
-      <button id="exportCsvBtn" class="secondary" type="button">データを書き出す（CSV）</button>
-      <div style="height:8px"></div>
-      <button id="importBtn" class="secondary" type="button">JSONバックアップを読み込む</button>
+      <div class="settings-data-actions">
+        <button id="exportBtn" class="secondary" type="button">JSON書き出し</button>
+        <button id="exportCsvBtn" class="secondary" type="button">CSV書き出し</button>
+        <button id="importBtn" class="secondary" type="button">JSON復元</button>
+        <button id="clearBtn" class="danger" type="button">全データ削除</button>
+      </div>
       <input id="importInput" class="hidden" type="file" accept="application/json,.json" />
-      <div style="height:8px"></div>
-      <button id="clearBtn" class="danger" type="button">全登録データを削除</button>
     </section>
   </div>
 </dialog>
@@ -414,8 +424,6 @@
         <span>${escapeHtml(location)}</span>
         <div class="location-actions">
           <button class="drag-handle" type="button" draggable="true" data-index="${index}" aria-label="${escapeHtml(location)}をドラッグして並べ替え">≡</button>
-          <button class="order-button moveLocationBtn" type="button" data-index="${index}" data-direction="-1" aria-label="${escapeHtml(location)}を上へ" ${index === 0 ? "disabled" : ""}>↑</button>
-          <button class="order-button moveLocationBtn" type="button" data-index="${index}" data-direction="1" aria-label="${escapeHtml(location)}を下へ" ${index === locations.length - 1 ? "disabled" : ""}>↓</button>
           <button class="danger deleteLocationBtn" type="button" data-index="${index}">削除</button>
         </div>
       </div>`).join("");
@@ -459,16 +467,6 @@
         const [moved] = locations.splice(locationDragFrom, 1);
         locations.splice(to, 0, moved);
         locationDragFrom = null;
-        saveLocations();
-        renderLocations();
-      });
-    });
-    document.querySelectorAll(".moveLocationBtn").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const from = Number(btn.dataset.index);
-        const to = from + Number(btn.dataset.direction);
-        if (to < 0 || to >= locations.length) return;
-        [locations[from], locations[to]] = [locations[to], locations[from]];
         saveLocations();
         renderLocations();
       });
@@ -1068,41 +1066,6 @@
   $("cancelImportBtn").addEventListener("click", () => {
     pendingImport = null;
     $("importDialog").close();
-  });
-
-  $("openImageBtn").addEventListener("click", () => {
-    $("imageInput").value = "";
-    $("imageInput").click();
-  });
-
-  $("imageInput").addEventListener("change", async event => {
-    const file = event.target.files && event.target.files[0];
-    if (!file) return;
-    if (!window.ZXing) {
-      alert("ZXingライブラリを読み込めませんでした。インターネット接続を確認してください。");
-      return;
-    }
-
-    const imageUrl = URL.createObjectURL(file);
-    const imageReader = new ZXing.BrowserMultiFormatReader(createDecodeHints());
-    updateRuntimeStatus("画像を解析しています");
-    try {
-      const result = await imageReader.decodeFromImageUrl(imageUrl);
-      const parsed = applyParsed(result.getText());
-      registrationSource = "image";
-      updateRuntimeStatus(parsed.gtin || parsed.lot || parsed.expiryMonth
-        ? "画像からGS1を読み取りました"
-        : "コードを読み取りました。登録内容を確認してください");
-      showView("registration");
-    } catch (e) {
-      console.warn("Image barcode decode failed.", e);
-      updateRuntimeStatus("画像からコードを読み取れませんでした");
-      alert("画像からGS1コードを読み取れませんでした。コードを大きく、正面から、明るく撮影して再度お試しください。");
-    } finally {
-      try { imageReader.reset(); } catch (e) { console.warn("Image reader reset failed.", e); }
-      URL.revokeObjectURL(imageUrl);
-      event.target.value = "";
-    }
   });
 
   $("openScannerBtn").addEventListener("click", async () => {
