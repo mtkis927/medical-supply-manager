@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#f7f7f8" />
-  <title>期限チェッカー MVP v3.7</title>
+  <title>期限チェッカー MVP v3.8</title>
   <style>
     :root {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -322,6 +322,25 @@
   </div>
 </dialog>
 
+<dialog id="moveDialog" aria-labelledby="moveTitle">
+  <div class="dialog-body">
+    <div class="dialog-header"><h2 id="moveTitle">保管場所を移動</h2></div>
+    <p id="moveMessage" class="scanner-note"></p>
+    <div class="field">
+      <label>移動先</label>
+      <select id="moveLocation"></select>
+    </div>
+    <div class="field">
+      <label>移動数量</label>
+      <input id="moveQuantity" type="number" min="1" value="1" />
+    </div>
+    <div class="dialog-actions">
+      <button id="confirmMoveBtn" class="primary" type="button">移動内容を確認する</button>
+      <button id="cancelMoveBtn" class="secondary" type="button">キャンセル</button>
+    </div>
+  </div>
+</dialog>
+
 <script src="https://unpkg.com/@zxing/library@0.23.0/umd/index.min.js"></script>
 <script>
 (() => {
@@ -341,6 +360,7 @@
   let editingItemId = null;
   let pendingDuplicate = null;
   let pendingImport = null;
+  let pendingMoveItemId = null;
   let locationDragFrom = null;
 
   const $ = id => document.getElementById(id);
@@ -527,6 +547,69 @@
     $("registrationTitle").textContent = "登録内容を編集";
     $("saveBtn").textContent = "変更を保存する";
     showView("registration");
+  }
+
+  function startMove(itemId) {
+    const item = items.find(x => x.id === itemId);
+    if (!item) return;
+    const destinations = locations.filter(location => location !== item.location);
+    if (!destinations.length) {
+      alert("移動先の保管場所がありません。設定から別の保管場所を登録してください。");
+      return;
+    }
+    pendingMoveItemId = item.id;
+    $("moveMessage").textContent = `${item.productName || "商品名未設定"}（現在 ${item.location || "未設定"}・数量 ${item.quantity || 1}）`;
+    $("moveLocation").innerHTML = destinations.map(location =>
+      `<option value="${escapeHtml(location)}">${escapeHtml(location)}</option>`
+    ).join("");
+    $("moveQuantity").max = String(item.quantity || 1);
+    $("moveQuantity").value = String(item.quantity || 1);
+    $("moveDialog").showModal();
+  }
+
+  function sameStockAtLocation(candidate, source, destination) {
+    if (candidate.id === source.id || candidate.location !== destination) return false;
+    const identityMatches = source.gtin
+      ? candidate.gtin === source.gtin
+      : !candidate.gtin && candidate.productName === source.productName;
+    return identityMatches &&
+      (candidate.lot || "") === (source.lot || "") &&
+      candidate.expiryMonth === source.expiryMonth;
+  }
+
+  function moveItem(itemId, destination, moveQuantity) {
+    const sourceIndex = items.findIndex(x => x.id === itemId);
+    if (sourceIndex === -1) return false;
+    const source = items[sourceIndex];
+    const total = Number(source.quantity || 1);
+    const target = items.find(candidate => sameStockAtLocation(candidate, source, destination));
+
+    if (target) {
+      target.quantity = Number(target.quantity || 1) + moveQuantity;
+      target.updatedAt = new Date().toISOString();
+    } else if (moveQuantity === total) {
+      source.location = destination;
+      source.updatedAt = new Date().toISOString();
+      saveStorage();
+      return true;
+    } else {
+      items.push({
+        ...source,
+        id:newId(),
+        quantity:moveQuantity,
+        location:destination,
+        createdAt:new Date().toISOString(),
+        updatedAt:undefined
+      });
+    }
+
+    if (moveQuantity === total) items.splice(sourceIndex, 1);
+    else {
+      source.quantity = total - moveQuantity;
+      source.updatedAt = new Date().toISOString();
+    }
+    saveStorage();
+    return true;
   }
 
   function showScanSuccess() {
@@ -794,12 +877,16 @@
             </div>
           </div>
           <div class="item-actions">
+            <button class="secondary moveBtn" type="button" data-id="${x.id}">移動</button>
             <button class="secondary editBtn" type="button" data-id="${x.id}">編集</button>
             <button class="danger deleteBtn" type="button" data-id="${x.id}">削除</button>
           </div>
         </div>`;
     }).join("");
 
+    document.querySelectorAll(".moveBtn").forEach(btn => {
+      btn.addEventListener("click", () => startMove(btn.dataset.id));
+    });
     document.querySelectorAll(".editBtn").forEach(btn => {
       btn.addEventListener("click", () => startEdit(btn.dataset.id));
     });
@@ -1066,6 +1153,29 @@
   $("cancelImportBtn").addEventListener("click", () => {
     pendingImport = null;
     $("importDialog").close();
+  });
+
+  $("confirmMoveBtn").addEventListener("click", () => {
+    const item = items.find(x => x.id === pendingMoveItemId);
+    if (!item) return alert("移動対象が見つかりませんでした。");
+    const destination = $("moveLocation").value;
+    const moveQuantity = Number($("moveQuantity").value);
+    const total = Number(item.quantity || 1);
+    if (!destination || destination === item.location) return alert("別の移動先を選択してください。");
+    if (!Number.isInteger(moveQuantity) || moveQuantity < 1 || moveQuantity > total) {
+      return alert(`移動数量は1〜${total}で入力してください。`);
+    }
+    if (!confirm(`${item.productName || "商品名未設定"}を${destination}へ${moveQuantity}個移動します。よろしいですか？`)) return;
+    if (!moveItem(item.id, destination, moveQuantity)) return;
+    pendingMoveItemId = null;
+    $("moveDialog").close();
+    render();
+    updateRuntimeStatus(`${destination}へ${moveQuantity}個移動しました`);
+  });
+
+  $("cancelMoveBtn").addEventListener("click", () => {
+    pendingMoveItemId = null;
+    $("moveDialog").close();
   });
 
   $("openScannerBtn").addEventListener("click", async () => {
